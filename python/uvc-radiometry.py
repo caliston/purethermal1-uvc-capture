@@ -43,17 +43,54 @@ def ktof(val):
 def ktoc(val):
   return (val - 27315) / 100.0
 
+# from https://groups.google.com/g/flir-lepton/c/LZUDqIXzuu8/m/A0Dz7lw-AAAJ
+def compc(val):
+  k_temp = 30250
+  return 0.0217 * (val - 8192) + (k_temp/100) - 273.15
+
 def raw_to_8bit(data):
   cv2.normalize(data, data, 0, 65535, cv2.NORM_MINMAX)
   np.right_shift(data, 8, data)
   return cv2.cvtColor(np.uint8(data), cv2.COLOR_GRAY2RGB)
 
 def display_temperature(img, val_k, loc, color):
-  val = ktof(val_k)
-  cv2.putText(img,"{0:.1f} degF".format(val), loc, cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, 2)
+  val = compc(val_k)
+  cv2.putText(img,"{0:.1f} C".format(val), loc, cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0,0,0), lineType=cv2.LINE_AA, thickness=4)
+  cv2.putText(img,"{0:.1f} C".format(val), loc, cv2.FONT_HERSHEY_SIMPLEX, 0.75, color, lineType=cv2.LINE_AA, thickness=2)
   x, y = loc
-  cv2.line(img, (x - 2, y), (x + 2, y), color, 1)
-  cv2.line(img, (x, y - 2), (x, y + 2), color, 1)
+  size = 5
+  cv2.line(img, (x - size, y), (x + size, y), color, 1)
+  cv2.line(img, (x, y - size), (x, y + size), color, 1)
+
+
+def telemetry(a):
+  tel = {}
+  a = a[0]
+  b = a[80:]
+
+  tel['tel_revision'] = a[0]
+  tel['time_counter'] = a[1] + a[2]<<16
+  tel['status'] = a[3] + a[4]<<16
+  tel['serial'] = a[5:12]
+  tel['revision'] = a[13:16]
+  tel['frame_counter'] = a[20] + a[21]<<16
+  tel['frame_mean'] = a[22]
+  tel['fpa_temp_count'] = a[23]
+  tel['fpa_temp_kelvin'] = a[24]
+  tel['housing_temp_count'] = a[25]
+  tel['housing_temp_kelvin'] = a[26]
+  tel['fpa_temp_lastffc_kelvin'] = a[29]
+  tel['time_counter_lastffc'] = a[30] + a[31]<<16
+  tel['housing_temp_lastffc_kelvin'] = a[32]
+  tel['emissivity'] = b[19]
+  tel['background_temp_kelvin'] = b[20]
+  tel['atmospheric_transmission'] = b[21]
+  tel['atmospheric_temp'] = b[22]
+  tel['window_transmission'] = b[23]
+  tel['window_reflection'] = b[24]
+  tel['window_temperature'] = b[25]
+  tel['window_reflected'] = b[26]
+  return tel
 
 def main():
   ctx = POINTER(uvc_context)()
@@ -88,8 +125,9 @@ def main():
         print("device does not support Y16")
         exit(1)
 
+      idx = 1
       libuvc.uvc_get_stream_ctrl_format_size(devh, byref(ctrl), UVC_FRAME_FORMAT_Y16,
-        frame_formats[0].wWidth, frame_formats[0].wHeight, int(1e7 / frame_formats[0].dwDefaultFrameInterval)
+        frame_formats[idx].wWidth, frame_formats[idx].wHeight, int(1e7 / frame_formats[idx].dwDefaultFrameInterval)
       )
 
       res = libuvc.uvc_start_streaming(devh, byref(ctrl), PTR_PY_FRAME_CALLBACK, None, 0)
@@ -102,11 +140,17 @@ def main():
           data = q.get(True, 500)
           if data is None:
             break
-          data = cv2.resize(data[:,:], (640, 480))
+          telemetry_rows = data[-2:, :]
+          tel = telemetry(telemetry_rows)
+          print('\x0c')
+          print(tel)
+          data = cv2.resize(data[:-2,:], (640, 480))
           minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(data)
+          centreVal = data[240,320]
           img = raw_to_8bit(data)
-          display_temperature(img, minVal, minLoc, (255, 0, 0))
+          display_temperature(img, minVal, minLoc, (255, 255, 0))
           display_temperature(img, maxVal, maxLoc, (0, 0, 255))
+          display_temperature(img, centreVal, (320, 240), (0, 255, 255))
           cv2.imshow('Lepton Radiometry', img)
           cv2.waitKey(1)
 

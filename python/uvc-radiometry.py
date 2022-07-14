@@ -11,6 +11,9 @@ try:
 except ImportError:
   from Queue import Queue
 import platform
+import sys
+import argparse
+import math
 
 BUF_SIZE = 2
 q = Queue(BUF_SIZE)
@@ -63,12 +66,22 @@ def display_temperature(img, val_k, loc, color):
   cv2.line(img, (x - size, y), (x + size, y), color, 1)
   cv2.line(img, (x, y - size), (x, y + size), color, 1)
 
-def display_timestamp(img, loc):
+def display_timestamp(img, loc, timestamp):
   x, y = loc
-  now = datetime.datetime.now()
-  timestring = now.strftime("%Y-%m-%d %H:%M:%S")
+  timestring = timestamp.isoformat(sep=" ", timespec='milliseconds')
   cv2.putText(img, timestring, loc, cv2.FONT_HERSHEY_PLAIN, 0.75, (0,0,0), lineType=cv2.LINE_AA, thickness=3)
   cv2.putText(img, timestring, loc, cv2.FONT_HERSHEY_PLAIN, 0.75, (255,255,255), lineType=cv2.LINE_AA, thickness=1)
+
+def save_image(img, basename, starttime, frametime, interval):
+  timediff = frametime - starttime
+  seconds = timediff.total_seconds()
+  interval_frac, interval_int = math.modf(interval)
+  if interval_frac > 0:
+    filename = "%s-%010.2f.jpg" % (basename, seconds)
+  else:
+    filename = "%s-%08d.jpg" % (basename, int(seconds))
+  print("Saving image %s" % filename)
+  cv2.imwrite(filename, img, [cv2.IMWRITE_JPEG_QUALITY, 50])
 
 def telemetry(a):
   tel = {}
@@ -100,6 +113,16 @@ def telemetry(a):
   return tel
 
 def main():
+  parser = argparse.ArgumentParser(description='Capture and display Lepton images with temperature readings')
+  parser.add_argument('--file', '-f', action='store', help="Save PNG images to sequential files beginning with this stem")
+  parser.add_argument('--interval', '-i', action='store', help="Interval per saved frame, in seconds")
+  args = parser.parse_args(sys.argv[1:])
+
+  if args.interval:
+    interval = float(args.interval)
+  else:
+    interval = 0
+
   ctx = POINTER(uvc_context)()
   dev = POINTER(uvc_device)()
   devh = POINTER(uvc_device_handle)()
@@ -143,10 +166,13 @@ def main():
         exit(1)
 
       try:
+        starttime = datetime.datetime.now()
+        lastframetime = starttime
         while True:
           data = q.get(True, 500)
           if data is None:
             break
+          frametime = datetime.datetime.now()
           telemetry_rows = data[-2:, :]
           tel = telemetry(telemetry_rows)
           print('\x0c')
@@ -158,8 +184,13 @@ def main():
           display_temperature(img, minVal, minLoc, (255, 255, 0))
           display_temperature(img, maxVal, maxLoc, (0, 0, 255))
           display_temperature(img, centreVal, (320, 240), (0, 255, 255))
-          display_timestamp(img,(0,10))
+          display_timestamp(img,(0,10), frametime)
           cv2.imshow('Lepton Radiometry', img)
+          if args.file:
+            timediff = frametime - lastframetime
+            if (interval > 0 and timediff.total_seconds() > interval) or interval == 0:
+              save_image(img, args.file, starttime, frametime, interval)
+              lastframetime = frametime
           cv2.waitKey(1)
 
         cv2.destroyAllWindows()

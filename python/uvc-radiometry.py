@@ -3,6 +3,7 @@
 
 from uvctypes import *
 import time
+import datetime
 import cv2
 import numpy as np
 try:
@@ -62,6 +63,12 @@ def display_temperature(img, val_k, loc, color):
   cv2.line(img, (x - size, y), (x + size, y), color, 1)
   cv2.line(img, (x, y - size), (x, y + size), color, 1)
 
+def display_timestamp(img, loc):
+  x, y = loc
+  now = datetime.datetime.now()
+  timestring = now.strftime("%Y-%m-%d %H:%M:%S")
+  cv2.putText(img, timestring, loc, cv2.FONT_HERSHEY_PLAIN, 0.75, (0,0,0), lineType=cv2.LINE_AA, thickness=3)
+  cv2.putText(img, timestring, loc, cv2.FONT_HERSHEY_PLAIN, 0.75, (255,255,255), lineType=cv2.LINE_AA, thickness=1)
 
 def telemetry(a):
   tel = {}
@@ -151,6 +158,7 @@ def main():
           display_temperature(img, minVal, minLoc, (255, 255, 0))
           display_temperature(img, maxVal, maxLoc, (0, 0, 255))
           display_temperature(img, centreVal, (320, 240), (0, 255, 255))
+          display_timestamp(img,(0,10))
           cv2.imshow('Lepton Radiometry', img)
           cv2.waitKey(1)
 
